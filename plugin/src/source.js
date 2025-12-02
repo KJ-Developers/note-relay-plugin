@@ -284,9 +284,6 @@ class MicroServer extends obsidian.Plugin {
                         <i class="fa-solid fa-compress"></i>
                     </button>
                     <div class="spacer"></div>
-                    <button class="nav-btn" onclick="refreshTree()" title="Refresh vault">
-                        <i class="fa-solid fa-rotate-right"></i>
-                    </button>
                 </div>
 
                 <div class="tab-bar-container">
