@@ -60,8 +60,9 @@ class MicroServer extends obsidian.Plugin {
     console.log('Plugin ID:', this.pluginId);
     
     // Initialize telemetry service
-    if (this.settings.enableAnalytics && this.settings.vaultId) {
-      telemetryService.init(this.settings.vaultId, true);
+    // PRIORITY: Use dbVaultId (server ID) if available, fallback to local vaultId
+    if (this.settings.enableAnalytics && (this.settings.dbVaultId || this.settings.vaultId)) {
+      telemetryService.init(this.settings.dbVaultId || this.settings.vaultId, true);
       telemetryService.recordSessionStart('lan'); // Initial session on plugin load
     }
     
@@ -585,6 +586,12 @@ class MicroServer extends obsidian.Plugin {
         if (result.vaultId) {
           this.settings.dbVaultId = result.vaultId;
           await this.saveSettings();
+          
+          // CRITICAL: Switch telemetry to official database ID immediately
+          if (this.settings.enableAnalytics) {
+            telemetryService.updateVaultId(this.settings.dbVaultId);
+            console.log('[Telemetry] Switched to database vault ID:', this.settings.dbVaultId);
+          }
         }
         
         this.startHeartbeat();
@@ -1989,8 +1996,8 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
           await this.plugin.saveSettings();
           
           // Reinitialize telemetry service
-          if (value && this.plugin.settings.vaultId) {
-            telemetryService.init(this.plugin.settings.vaultId, true);
+          if (value && (this.plugin.settings.dbVaultId || this.plugin.settings.vaultId)) {
+            telemetryService.init(this.plugin.settings.dbVaultId || this.plugin.settings.vaultId, true);
             new obsidian.Notice('Analytics enabled');
           } else {
             telemetryService.destroy();

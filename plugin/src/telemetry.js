@@ -294,6 +294,31 @@ class TelemetryService {
   }
   
   /**
+   * Update vault ID (e.g., after registration switches from local to database ID)
+   * @param {string} newVaultId - New vault ID to use for all future events
+   */
+  updateVaultId(newVaultId) {
+    if (!newVaultId) {
+      console.warn('[Telemetry] Cannot update to null vault ID');
+      return;
+    }
+    
+    const oldId = this.vaultId;
+    this.vaultId = newVaultId;
+    
+    // Update any queued events to use the new vault ID
+    this.eventQueue = this.eventQueue.map(event => ({
+      ...event,
+      vault_id: newVaultId
+    }));
+    
+    console.log(`[Telemetry] Vault ID updated: ${oldId} → ${newVaultId}`);
+    
+    // Flush immediately to send updated events
+    this.flush();
+  }
+
+  /**
    * Cleanup - stop intervals and remove listeners
    */
   destroy() {
