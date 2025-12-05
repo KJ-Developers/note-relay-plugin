@@ -591,6 +591,10 @@ class MicroServer extends obsidian.Plugin {
         console.log('Vault registered! Signal ID:', result.signalId, 'DB Vault ID:', result.vaultId);
         this.signalId = result.signalId;
         
+        // TODO: Capture 'tier' (free/base/pro) from response here once Server API is updated
+        // Expected: result.planType or result.tier
+        // Usage: Feature gating, dashboard tier display, analytics segmentation
+        
         // Save the database vault ID for guest management
         if (result.vaultId) {
           this.settings.dbVaultId = result.vaultId;

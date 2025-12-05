@@ -87,6 +87,9 @@ class TelemetryService {
   recordSessionStart(network = 'lan') {
     if (!this.enabled) return;
     
+    // Get Machine ID from localStorage (Trinity Protocol)
+    const nodeId = window.localStorage.getItem('note-relay-node-id');
+    
     const event = {
       vault_id: this.vaultId,
       session_id: this.sessionId,
@@ -96,7 +99,8 @@ class TelemetryService {
       device: this.deviceInfo.device,
       os: this.deviceInfo.os,
       payload: {
-        plugin_version: this.getPluginVersion()
+        plugin_version: this.getPluginVersion(),
+        node_id: nodeId  // Machine ID for device-specific tracking
       }
     };
     
@@ -115,6 +119,9 @@ class TelemetryService {
     
     const durationSeconds = Math.floor((Date.now() - this.sessionStart) / 1000);
     
+    // Get Machine ID from localStorage (Trinity Protocol)
+    const nodeId = window.localStorage.getItem('note-relay-node-id');
+    
     const event = {
       vault_id: this.vaultId,
       session_id: this.sessionId,
@@ -123,7 +130,10 @@ class TelemetryService {
       browser: this.deviceInfo.browser,
       device: this.deviceInfo.device,
       os: this.deviceInfo.os,
-      duration_seconds: durationSeconds
+      duration_seconds: durationSeconds,
+      payload: {
+        node_id: nodeId  // Machine ID for device-specific tracking
+      }
     };
     
     this.queue.push(event);
@@ -140,6 +150,9 @@ class TelemetryService {
   recordSync(bytes = 0) {
     if (!this.enabled) return;
     
+    // Get Machine ID from localStorage (Trinity Protocol)
+    const nodeId = window.localStorage.getItem('note-relay-node-id');
+    
     const event = {
       vault_id: this.vaultId,
       session_id: this.sessionId,
@@ -148,7 +161,10 @@ class TelemetryService {
       browser: this.deviceInfo.browser,
       device: this.deviceInfo.device,
       os: this.deviceInfo.os,
-      bytes_transferred: bytes
+      bytes_transferred: bytes,
+      payload: {
+        node_id: nodeId  // Machine ID for device-specific tracking
+      }
     };
     
     this.queue.push(event);
@@ -167,6 +183,9 @@ class TelemetryService {
   recordError(errorCode, message = null) {
     if (!this.enabled) return;
     
+    // Get Machine ID from localStorage (Trinity Protocol)
+    const nodeId = window.localStorage.getItem('note-relay-node-id');
+    
     const event = {
       vault_id: this.vaultId,
       session_id: this.sessionId,
@@ -176,7 +195,10 @@ class TelemetryService {
       device: this.deviceInfo.device,
       os: this.deviceInfo.os,
       error_code: errorCode,
-      payload: message ? { message } : {}
+      payload: {
+        node_id: nodeId,  // Machine ID for device-specific tracking
+        ...(message ? { message } : {})
+      }
     };
     
     this.queue.push(event);
