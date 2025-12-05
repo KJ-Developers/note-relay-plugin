@@ -2039,6 +2039,24 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     
     // Add Disconnect button if email is set
     if (this.plugin.settings.userEmail) {
+      // Refresh Status button
+      emailSetting.addButton((b) => b
+        .setIcon('refresh-cw')
+        .setTooltip('Refresh license status from server')
+        .onClick(async () => {
+          new obsidian.Notice('🔄 Refreshing license status...');
+          try {
+            await this.plugin.registerVaultAndGetSignalId();
+            this.display(); // Refresh UI to show updated tier badge
+            new obsidian.Notice('✅ License status updated');
+          } catch (error) {
+            console.error('Failed to refresh license:', error);
+            new obsidian.Notice('❌ Failed to refresh. Check your connection.');
+          }
+        })
+      );
+      
+      // Disconnect button
       emailSetting.addButton((b) => b
         .setButtonText('Disconnect')
         .setClass('mod-warning')
