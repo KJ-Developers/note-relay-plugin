@@ -1894,7 +1894,7 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
-    this.activeTab = 'local';
+    this.activeTab = 'general';
   }
 
   display() {
@@ -1958,8 +1958,8 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     tabContainer.style.cssText = 'display: flex; gap: 10px; margin: 20px 0; border-bottom: 2px solid var(--background-modifier-border);';
     
     const tabs = [
-      { id: 'local', label: '🏠 Local Access' },
-      { id: 'remote', label: '🌐 Remote Access' }
+      { id: 'general', label: '🏠 General & Identity' },
+      { id: 'remote', label: '🌐 Remote Relay' }
     ];
     
     tabs.forEach(tab => {
@@ -1975,14 +1975,54 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     const contentDiv = containerEl.createDiv({ cls: 'portal-tab-content' });
     contentDiv.style.cssText = 'padding: 20px 0;';
     
-    if (this.activeTab === 'local') {
-      this.displayLocalTab(contentDiv);
+    if (this.activeTab === 'general') {
+      this.displayGeneralTab(contentDiv);
     } else if (this.activeTab === 'remote') {
       this.displayRemoteTab(contentDiv);
     }
   }
   
-  displayLocalTab(container) {
+  displayGeneralTab(container) {
+    // === IDENTITY SECTION (ALWAYS FIRST) ===
+    const identitySection = container.createEl('div', { cls: 'identity-section' });
+    identitySection.style.cssText = 'padding: 15px; margin-bottom: 25px; background: var(--background-secondary); border-radius: 6px; border-left: 3px solid var(--interactive-accent);';
+    
+    identitySection.createEl('h3', { text: '👤 Account Identity' });
+    identitySection.createEl('p', { 
+      text: 'Link your Note Relay account to unlock Remote Access and Usage Analytics.',
+      cls: 'setting-item-description'
+    });
+    
+    // Email Address (moved from Remote tab)
+    new obsidian.Setting(identitySection)
+      .setName('Email Address')
+      .setDesc('The email address associated with your Note Relay subscription')
+      .addText((t) => {
+        t.setPlaceholder('your.email@example.com');
+        t.setValue(this.plugin.settings.userEmail || '');
+        t.inputEl.type = 'email';
+        t.onChange(async (value) => {
+          this.plugin.settings.userEmail = value.trim().toLowerCase();
+          await this.plugin.saveSettings();
+          
+          if (!value) {
+            this.plugin.disconnectSignaling();
+          }
+          // Trigger re-render to update analytics toggle state
+          this.display();
+        });
+      });
+    
+    const emailStatus = identitySection.createDiv({ cls: 'setting-item-description' });
+    emailStatus.style.cssText = 'margin: -10px 0 15px 0; padding-left: 0;';
+    
+    if (this.plugin.settings.userEmail) {
+      emailStatus.innerHTML = '✅ <strong style="color: #4caf50;">Email saved</strong> - Remote Access and Analytics unlocked';
+    } else {
+      emailStatus.setText('⚠️ Enter your email to enable Remote Access and Usage Dashboard');
+    }
+    
+    // === LOCAL SERVER CONFIGURATION ===
     container.createEl('h3', { text: 'Local Server Configuration' });
     
     // Read-Write Password
@@ -2054,20 +2094,20 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     // Analytics Privacy Settings
     container.createEl('h3', { text: 'Privacy & Analytics', cls: 'setting-item-heading' });
     
-    // Analytics toggle - only available for registered users
+    // Analytics toggle - only available for users with email linked
     const analyticsToggle = new obsidian.Setting(container)
       .setName('Share Anonymous Usage Statistics');
     
-    if (!this.plugin.settings.dbVaultId) {
-      // Not registered - disable toggle and show registration requirement
+    if (!this.plugin.settings.userEmail) {
+      // No email - disable toggle and show requirement
       analyticsToggle
-        .setDesc('📧 Register your vault (provide email above) to enable analytics and view your stats on the dashboard.')
+        .setDesc('📧 Link an account above to enable the Usage Dashboard and analytics.')
         .addToggle(toggle => toggle
           .setValue(false)
           .setDisabled(true)
         );
     } else {
-      // Registered - show normal toggle
+      // Email linked - show normal toggle
       analyticsToggle
         .setDesc('Help improve Note Relay by sharing basic usage data (event counts, OS, network type). No vault content or file names are tracked.')
         .addToggle(toggle => toggle
@@ -2091,7 +2131,17 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
   }
   
   displayRemoteTab(container) {
-    container.createEl('h3', { text: 'Remote Access (Identity-Based)' });
+    // === GATEKEEPER: IDENTITY REQUIRED ===
+    if (!this.plugin.settings.userEmail) {
+      const errorBlock = container.createEl('div', {
+        cls: 'setting-error-block'
+      });
+      errorBlock.style.cssText = 'color: var(--text-error); font-weight: bold; padding: 15px; border: 2px solid var(--text-error); border-radius: 6px; background: rgba(244, 67, 54, 0.1); margin: 20px 0;';
+      errorBlock.innerHTML = '⚠️ <strong>Identity Required:</strong> Please enter your email in the General tab to configure Remote Access.';
+      return; // STOP RENDERING THE REST OF THE TAB
+    }
+    
+    container.createEl('h3', { text: 'Remote Relay Configuration' });
     
     // Setup instructions banner
     const isActive = this.plugin.signalId && this.plugin.heartbeatInterval;
@@ -2115,10 +2165,10 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
       `;
     }
     
-    // Master Password (Owner Override)
+    // Remote Vault Password
     new obsidian.Setting(container)
-      .setName('Step 1: Master Password (Owner)')
-      .setDesc('Set YOUR master password for owner-level access to this vault')
+      .setName('Remote Vault Password')
+      .setDesc('Set a secure password for remote connections. (Distinct from your Local Password)')
       .addText((t) => {
         t.setPlaceholder('Enter a strong master password');
         t.inputEl.type = 'password';
@@ -2141,43 +2191,13 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     
     const masterPassStatus = container.createDiv({ cls: 'setting-item-description' });
     masterPassStatus.style.cssText = 'margin: -10px 0 20px 0; padding-left: 0;';
-    masterPassStatus.setText(this.plugin.settings.masterPasswordHash ? '✅ Master password is set' : '⚠️ Required - This is YOUR password for owner access');
-    
-    // Email Address
-    new obsidian.Setting(container)
-      .setName('Step 2: Your Email Address')
-      .setDesc('Enter the email address associated with your Note Relay subscription')
-      .addText((t) => {
-        t.setPlaceholder('your.email@example.com');
-        t.setValue(this.plugin.settings.userEmail || '');
-        t.inputEl.type = 'email';
-        t.onChange(async (value) => {
-          this.plugin.settings.userEmail = value.trim().toLowerCase();
-          await this.plugin.saveSettings();
-          
-          if (!value) {
-              this.plugin.disconnectSignaling();
-          }
-          // Don't redisplay() here - causes focus loss while typing
-        });
-      });
-    
-    const emailStatus = container.createDiv({ cls: 'setting-item-description' });
-    emailStatus.style.cssText = 'margin: -10px 0 20px 0; padding-left: 0;';
-    
-    if (isActive) {
-      emailStatus.innerHTML = '✅ <strong style="color: #4caf50;">Active & Online</strong> - Vault is registered and sending heartbeats';
-    } else if (this.plugin.settings.userEmail) {
-      emailStatus.setText('✅ Email saved - Ready to activate');
-    } else {
-      emailStatus.setText('⚠️ Required - Enter your subscription email address');
-    }
+    masterPassStatus.setText(this.plugin.settings.masterPasswordHash ? '✅ Remote password is set' : '⚠️ Required - Set a password for remote vault access');
     
     // Activation Button
     const canActivate = hasMasterPass && hasEmail;
     const activationSetting = new obsidian.Setting(container)
-      .setName('Step 3: Activate Remote Access')
-      .setDesc(canActivate ? 'Click to validate your subscription and register this vault for remote access' : 'Complete steps 1 and 2 above first');
+      .setName('Activate Remote Access')
+      .setDesc(canActivate ? 'Click to validate your subscription and register this vault for remote access' : 'Set a remote password above to continue');
     
     activationSetting.addButton((b) => {
       b.setButtonText(isActive ? '🟢 Active - Click to Re-register' : 'Activate Remote Access')
