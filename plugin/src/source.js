@@ -2053,11 +2053,36 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
             return;
           }
           
-          // Commit staged value to settings
+          // UI Feedback
+          b.setButtonText('Verifying...');
+          b.setDisabled(true);
+          
+          // Atomic Prep (Clear old state, set new email)
+          this.plugin.settings.dbVaultId = '';
           this.plugin.settings.userEmail = tempEmail;
+          this.plugin.settings.licenseTier = 'free'; // Reset to default
           await this.plugin.saveSettings();
-          new obsidian.Notice('✅ Account connected');
-          this.display(); // NOW refresh to show connected state
+          
+          // THE REAL HANDSHAKE - Verify with server
+          const signalId = await this.plugin.registerVaultAndGetSignalId();
+          
+          // The Verdict
+          if (signalId) {
+            // SUCCESS - Server confirmed identity
+            new obsidian.Notice('✅ Identity verified. Connected.');
+            this.display(); // Refresh UI (Green Light)
+          } else {
+            // FAILURE - ROLLBACK
+            this.plugin.settings.userEmail = ''; // Wipe bad email
+            this.plugin.settings.dbVaultId = '';
+            this.plugin.settings.licenseTier = 'free';
+            await this.plugin.saveSettings();
+            
+            // Error notice already shown by registerVaultAndGetSignalId
+            b.setButtonText('Connect');
+            b.setDisabled(false);
+            this.display(); // Refresh UI (Red Light)
+          }
         })
       );
     
