@@ -1994,7 +1994,7 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     });
     
     // Email Address (moved from Remote tab)
-    new obsidian.Setting(identitySection)
+    const emailSetting = new obsidian.Setting(identitySection)
       .setName('Email Address')
       .setDesc('The email address associated with your Note Relay subscription')
       .addText((t) => {
@@ -2013,6 +2013,26 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
         });
       });
     
+    // Add Disconnect button if email is set
+    if (this.plugin.settings.userEmail) {
+      emailSetting.addButton((b) => b
+        .setButtonText('Disconnect')
+        .setClass('mod-warning')
+        .onClick(async () => {
+          // Confirm destructive action
+          const confirmed = confirm('Disconnect your account? This will disable Remote Access and Analytics.');
+          if (confirmed) {
+            this.plugin.settings.userEmail = '';
+            this.plugin.settings.dbVaultId = '';
+            this.plugin.disconnectSignaling();
+            await this.plugin.saveSettings();
+            new obsidian.Notice('Account disconnected');
+            this.display(); // Force UI refresh
+          }
+        })
+      );
+    }
+    
     const emailStatus = identitySection.createDiv({ cls: 'setting-item-description' });
     emailStatus.style.cssText = 'margin: -10px 0 15px 0; padding-left: 0;';
     
@@ -2026,7 +2046,7 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     container.createEl('h3', { text: 'Local Server Configuration' });
     
     // Read-Write Password
-    new obsidian.Setting(container)
+    const localPassSetting = new obsidian.Setting(container)
       .setName('Read-Write Password')
       .setDesc('Password for full editing access to your vault')
       .addText((t) => {
@@ -2046,6 +2066,23 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
             this.display();
           }
         }));
+    
+    // Add Clear button if password is set
+    if (this.plugin.settings.passwordHash) {
+      localPassSetting.addButton((b) => b
+        .setButtonText('Clear')
+        .setClass('mod-warning')
+        .onClick(async () => {
+          const confirmed = confirm('Clear your local password? This will remove password protection.');
+          if (confirmed) {
+            this.plugin.settings.passwordHash = '';
+            await this.plugin.saveSettings();
+            new obsidian.Notice('Local password cleared');
+            this.display();
+          }
+        })
+      );
+    }
     
     const passStatus = container.createDiv({ cls: 'setting-item-description' });
     passStatus.style.cssText = 'margin: -10px 0 20px 0; padding-left: 0;';
@@ -2166,7 +2203,7 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     }
     
     // Remote Vault Password
-    new obsidian.Setting(container)
+    const remotePassSetting = new obsidian.Setting(container)
       .setName('Remote Vault Password')
       .setDesc('Set a secure password for remote connections. (Distinct from your Local Password)')
       .addText((t) => {
@@ -2188,6 +2225,24 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
             new obsidian.Notice('Please enter a password');
           }
         }));
+    
+    // Add Clear button if master password is set
+    if (this.plugin.settings.masterPasswordHash) {
+      remotePassSetting.addButton((b) => b
+        .setButtonText('Clear')
+        .setClass('mod-warning')
+        .onClick(async () => {
+          const confirmed = confirm('Clear your remote password? This will disable remote vault access.');
+          if (confirmed) {
+            this.plugin.settings.masterPasswordHash = '';
+            this.plugin.disconnectSignaling(); // Disconnect if active
+            await this.plugin.saveSettings();
+            new obsidian.Notice('Remote password cleared');
+            this.display();
+          }
+        })
+      );
+    }
     
     const masterPassStatus = container.createDiv({ cls: 'setting-item-description' });
     masterPassStatus.style.cssText = 'margin: -10px 0 20px 0; padding-left: 0;';
