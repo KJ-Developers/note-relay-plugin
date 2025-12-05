@@ -20,7 +20,6 @@ const API_BASE_URL = 'https://noterelay.io';
 const BUILD_VERSION = 'v7.1.0-EMAIL-AUTH';
 const CHUNK_SIZE = 16 * 1024;
 const DEFAULT_SETTINGS = { 
-  targetHostId: '', 
   passwordHash: '',
   localPort: 5474,
   autoStartServer: true,
@@ -71,6 +70,13 @@ class MicroServer extends obsidian.Plugin {
     this.nodeId = nodeId;
     console.log('Machine Identity:', this.nodeId);
     
+    // Cleanup legacy identity artifacts from removed standby feature
+    window.localStorage.removeItem('portal-device-id');
+    if (this.settings.targetHostId !== undefined) {
+      delete this.settings.targetHostId;
+      await this.saveSettings();
+    }
+    
     // Initialize telemetry service
     // STRICT GATING: Only enable analytics for registered users (dbVaultId present)
     // No registration = No telemetry (no local UUID usage)
@@ -81,21 +87,6 @@ class MicroServer extends obsidian.Plugin {
     } else if (!this.settings.dbVaultId) {
       console.log('[Telemetry] Disabled - vault not registered');
     }
-    
-    let localId = window.localStorage.getItem('portal-device-id');
-    if (!localId) {
-      localId = 'dev_' + Math.random().toString(36).substr(2, 9);
-      window.localStorage.setItem('portal-device-id', localId);
-    }
-    this.localDeviceId = localId;
-    
-    if (this.settings.targetHostId === '') {
-      this.settings.targetHostId = localId;
-      await this.saveSettings();
-    }
-    
-    // REMOVED: Standby check. All devices are now active hosts by default.
-    // if (this.settings.targetHostId !== this.localDeviceId) { ... }
     
     console.log(`%c PORTAL ${BUILD_VERSION} READY`, 'color: #00ff00; font-weight: bold; background: #000;');
     this.statusBar = this.addStatusBarItem();
