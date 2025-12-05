@@ -579,9 +579,25 @@ class MicroServer extends obsidian.Plugin {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Registration failed:', response.status, errorText);
-        new obsidian.Notice(`Registration failed: ${response.status}`);
+        let errorMessage = `Registration failed: ${response.status}`;
+        
+        try {
+          const errorData = await response.json();
+          // Handle specific error cases
+          if (response.status === 404 && errorData.error === 'Account not found') {
+            errorMessage = '❌ Account not found. Please sign up at noterelay.io first.';
+          } else if (response.status === 400 && errorData.error === 'Invalid email format') {
+            errorMessage = '❌ Invalid email format. Please check your email address.';
+          } else if (errorData.error) {
+            errorMessage = `❌ ${errorData.error}`;
+          }
+        } catch (e) {
+          // If JSON parsing fails, use text response
+          const errorText = await response.text();
+          console.error('Registration failed:', response.status, errorText);
+        }
+        
+        new obsidian.Notice(errorMessage, 10000);
         return null;
       }
 
