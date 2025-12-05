@@ -83,16 +83,14 @@ class TelemetryService {
           console.error('[Telemetry] Failed to send on unload:', error);
         }
       }
-    }
   }
   
   /**
    * Record session start event
    * @param {string} network - 'lan', 'tailscale', or 'cloud'
    */
-  recordSessionStart(network) {
+  recordSessionStart(network = 'lan') {
     if (!this.enabled) return;
-    if (!network) network = 'lan';
     
     const event = {
       vault_id: this.vaultId,
@@ -114,8 +112,14 @@ class TelemetryService {
     
     // Flush immediately for session start
     this.flush();
+  } console.log('[Telemetry] Session start recorded:', network);
+    
+    // Flush immediately for session start
+    this.flush();
   }
   
+  /**
+   * Record session end event
   /**
    * Record session end event
    */
@@ -143,15 +147,17 @@ class TelemetryService {
     
     // Flush immediately for session end
     this.flush();
-  }
-
+  }**
+   * Record sync event
+   * @param {number} bytes - Bytes transferred
+   */
+  recordSync(bytes = 0) {
   /**
    * Record sync event
    * @param {number} bytes - Bytes transferred
    */
-  recordSync(bytes) {
+  recordSync(bytes = 0) {
     if (!this.enabled) return;
-    if (!bytes) bytes = 0;
     
     const event = {
       vault_id: this.vaultId,
@@ -173,16 +179,16 @@ class TelemetryService {
     if (this.queue.length >= 10) {
       this.flush();
     }
-  }
-
+  }* @param {string} message - Error message (optional)
+   */
+  recordError(errorCode, message = null) {
   /**
    * Record error event
    * @param {string} errorCode - Error code/type
    * @param {string} message - Error message (optional)
    */
-  recordError(errorCode, message) {
+  recordError(errorCode, message = null) {
     if (!this.enabled) return;
-    if (!message) message = null;
     
     const event = {
       vault_id: this.vaultId,
@@ -195,7 +201,9 @@ class TelemetryService {
       device: this.deviceInfo.device,
       os: this.deviceInfo.os,
       error_code: errorCode,
-      payload: message ? { message } : {}
+      payload: {
+        ...(message ? { message } : {})
+      }
     };
     
     this.queue.push(event);
@@ -203,13 +211,7 @@ class TelemetryService {
     
     // Flush immediately for errors
     this.flush();
-  }
-
-  /**
-   * Flush queued events to server
-   */
-  async flush() {
-    if (this.queue.length === 0) return;
+  } if (this.queue.length === 0) return;
     
     const batch = [...this.queue];
     this.queue = [];
@@ -326,7 +328,7 @@ class TelemetryService {
     this.vaultId = newVaultId;
     
     // Update any queued events to use the new vault ID
-    this.queue = this.queue.map(event => ({
+    this.eventQueue = this.eventQueue.map(event => ({
       ...event,
       vault_id: newVaultId
     }));

@@ -14,9 +14,8 @@ const { join } = require('path');
 // Analytics telemetry service
 import telemetryService from './telemetry';
 
-// Supabase credentials loaded dynamically from API (no hardcoded keys)
-let SUPABASE_URL = null;
-let SUPABASE_KEY = null;
+const SUPABASE_URL = 'https://upstfmjkzrrshiprdoie.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwc3RmbWprenJyc2hpcHJkb2llIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4NDUxNDIsImV4cCI6MjA3OTQyMTE0Mn0.rJCvxQomRogp-9i9Uo2pK-mXpIjn0oyISivYGAifZ4s';
 const API_BASE_URL = 'https://noterelay.io';
 const BUILD_VERSION = 'v7.1.0-EMAIL-AUTH';
 const CHUNK_SIZE = 16 * 1024;
@@ -33,7 +32,7 @@ const DEFAULT_SETTINGS = {
   vaultId: '', // Unique vault identifier (auto-generated)
   guestList: [], // [{ userId, email, passHash, mode: 'rw'|'ro', label, status: 'pending'|'verified' }]
   // ANALYTICS
-  enableAnalytics: false // Opt-in only - user must explicitly enable
+  enableAnalytics: true // Share anonymous usage statistics
 };
 
 async function hashString(str) {
@@ -79,14 +78,14 @@ class MicroServer extends obsidian.Plugin {
     }
     
     // Initialize telemetry service
-    // STRICT GATING: Only enable analytics for registered users (dbVaultId + userId present)
+    // STRICT GATING: Only enable analytics for registered users (dbVaultId present)
     // No registration = No telemetry (no local UUID usage)
-    if (this.settings.enableAnalytics && this.settings.dbVaultId && this.settings.userId) {
-      telemetryService.init(this.settings.dbVaultId, this.settings.userId, this.nodeId, true);
+    if (this.settings.enableAnalytics && this.settings.dbVaultId) {
+      telemetryService.init(this.settings.dbVaultId, true);
       telemetryService.recordSessionStart('lan'); // Initial session on plugin load
       console.log('[Telemetry] Initialized for registered vault:', this.settings.dbVaultId);
-    } else if (!this.settings.dbVaultId || !this.settings.userId) {
-      console.log('[Telemetry] Disabled - vault not fully registered');
+    } else if (!this.settings.dbVaultId) {
+      console.log('[Telemetry] Disabled - vault not registered');
     }
     
     console.log(`%c PORTAL ${BUILD_VERSION} READY`, 'color: #00ff00; font-weight: bold; background: #000;');
@@ -605,7 +604,7 @@ class MicroServer extends obsidian.Plugin {
       const result = await response.json();
 
       if (result.success) {
-        console.log('Vault registered! Signal ID:', result.signalId, 'DB Vault ID:', result.vaultId, 'User ID:', result.userId, 'Plan:', result.planType);
+        console.log('Vault registered! Signal ID:', result.signalId, 'DB Vault ID:', result.vaultId, 'Plan:', result.planType);
         this.signalId = result.signalId;
         
         // Capture license tier from server response
@@ -615,18 +614,19 @@ class MicroServer extends obsidian.Plugin {
           console.log('License tier captured:', this.settings.licenseTier);
         }
         
-        // Save the database vault ID and user ID for analytics
-        if (result.vaultId && result.userId) {
+        // Save the database vault ID for guest management
+        if (result.vaultId) {
           this.settings.dbVaultId = result.vaultId;
-          this.settings.userId = result.userId;
+          
+          // AUTO-ENABLE: Registration unlocks analytics (The Teaser)
+          this.settings.enableAnalytics = true;
           await this.saveSettings();
           
-          // Only initialize telemetry if user has opted in
-          if (this.settings.enableAnalytics) {
-            telemetryService.init(this.settings.dbVaultId, this.settings.userId, this.nodeId, true);
-            telemetryService.recordSessionStart('lan');
-            console.log('[Telemetry] Initialized for registered vault:', this.settings.dbVaultId);
-          }
+          // Start telemetry immediately with database ID
+          telemetryService.init(this.settings.dbVaultId, true);
+          telemetryService.recordSessionStart('lan');
+          console.log('[Telemetry] Auto-enabled for registered vault:', this.settings.dbVaultId);
+          new obsidian.Notice('Analytics enabled - view your stats at noterelay.io/dashboard');
         }
         
         this.startHeartbeat();
@@ -1682,40 +1682,6 @@ class MicroServer extends obsidian.Plugin {
     // Disconnect existing connection if any
     this.disconnectSignaling();
 
-    // Load Supabase credentials dynamically from API (no hardcoded keys)
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      try {
-        const initResponse = await fetch(`${API_BASE_URL}/api/plugin-init`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            email: this.settings.userEmail,
-            vaultId: this.settings.vaultId
-          })
-        });
-
-        if (!initResponse.ok) {
-          const error = await initResponse.json();
-          console.error('Failed to load connection credentials:', error);
-          new obsidian.Notice('Note Relay: Unable to connect to cloud service');
-          return;
-        }
-
-        const initData = await initResponse.json();
-        SUPABASE_URL = initData.supabase.url;
-        SUPABASE_KEY = initData.supabase.anonKey;
-        this.iceServers = initData.iceServers; // Store for WebRTC
-        
-        console.log('✅ Connection credentials loaded dynamically');
-      } catch (err) {
-        console.error('Failed to fetch connection credentials:', err);
-        new obsidian.Notice('Note Relay: Connection initialization failed');
-        return;
-      }
-    }
-
     this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
     
     // Check if we have user email for remote access
@@ -2323,6 +2289,15 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
   }
   
   displayRemoteTab(container) {
+    // === GATEKEEPER: IDENTITY REQUIRED ===
+    if (!this.plugin.settings.userEmail) {
+      const errorBlock = container.createEl('div', {
+        cls: 'setting-error-block'
+      });
+      errorBlock.style.cssText = 'color: var(--text-error); font-weight: bold; padding: 15px; border: 2px solid var(--text-error); border-radius: 6px; background: rgba(244, 67, 54, 0.1); margin: 20px 0;';
+      errorBlock.innerHTML = '⚠️ <strong>Identity Required:</strong> Please enter your email in the General tab to configure Remote Access.';
+      return; // STOP RENDERING THE REST OF THE TAB
+    }
     
     // Define tier (base and pro both get remote access)
     const isPro = ['base', 'pro'].includes(this.plugin.settings.licenseTier);
@@ -2338,7 +2313,7 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
         <div style="font-weight: bold; font-size: 1.2em; margin-bottom: 8px;">Upgrade to Unlock Remote Access</div>
         <div style="color: var(--text-muted); margin-bottom: 15px;">
           Access your vault from anywhere with global relay connectivity.<br>
-          Starts at <strong>$1.99/month</strong> with Base plan.
+          Available on <strong style="color: #ffd700;">Base ($1.99/mo)</strong> and <strong style="color: #ffd700;">Pro ($3.99/mo)</strong> plans.
         </div>
         <button class="mod-cta" style="padding: 10px 30px; background: #ffd700; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
           View Plans
@@ -2349,9 +2324,27 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
       };
     }
     
+    // Setup instructions banner
     const isActive = this.plugin.signalId && this.plugin.heartbeatInterval;
     const hasEmail = !!this.plugin.settings.userEmail;
     const hasMasterPass = !!this.plugin.settings.masterPasswordHash;
+    
+    if (!isActive) {
+      const setupBanner = container.createDiv();
+      setupBanner.style.cssText = 'padding: 15px; margin-bottom: 20px; background: var(--background-secondary); border-radius: 6px; border-left: 3px solid var(--interactive-accent);';
+      
+      let steps = [];
+      if (!hasMasterPass) steps.push('1️⃣ Set your master password (Owner access)');
+      if (!hasEmail) steps.push(`${hasMasterPass ? '2️⃣' : '1️⃣'} Enter your email address`);
+      if (hasMasterPass && hasEmail) steps.push('3️⃣ Click "Activate Remote Access" below');
+      
+      setupBanner.innerHTML = `
+        <div style="font-weight: 600; margin-bottom: 8px;">🚀 Setup Required</div>
+        <div style="font-size: 0.9em; color: var(--text-muted);">
+          ${steps.length > 0 ? steps.join('<br>') : 'Ready to activate!'}
+        </div>
+      `;
+    }
     
     // Remote Vault Password
     const remotePassSetting = new obsidian.Setting(container)
@@ -2506,16 +2499,15 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     const guestManagerDiv = container.createDiv();
     guestManagerDiv.style.cssText = 'padding: 20px; background: var(--background-secondary); border-radius: 6px; margin: 20px 0;';
     
-    // Show upgrade CTA if not Pro (Glass Wall - still show controls below)
+    // Show upgrade CTA if not Pro
     if (!hasGuestAccess) {
       const upgradeCTA = guestManagerDiv.createDiv();
-      upgradeCTA.style.cssText = 'padding: 20px; margin-bottom: 20px; text-align: center; background: rgba(255, 215, 0, 0.1); border: 2px solid #ffd700; border-radius: 6px; color: var(--text-normal);';
+      upgradeCTA.style.cssText = 'padding: 20px; text-align: center; background: rgba(255, 215, 0, 0.1); border: 2px solid #ffd700; border-radius: 6px; color: var(--text-normal);';
       upgradeCTA.innerHTML = `
         <div style="font-size: 32px; margin-bottom: 10px;">🔒</div>
         <div style="font-weight: bold; font-size: 1.1em; margin-bottom: 8px;">Pro Feature: Guest Vault Sharing</div>
         <div style="color: var(--text-muted); margin-bottom: 15px;">
-          Share your vault with guests using read-only or read-write access.<br>
-          Available on <strong>Pro plan ($3.99/month)</strong>.
+          Upgrade to <strong style="color: #ffd700;">Pro Plan</strong> to share your vault with guests using read-only or read-write access.
         </div>
         <button class="mod-cta" style="padding: 10px 30px; background: #ffd700; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
           Upgrade to Pro
@@ -2524,6 +2516,7 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
       upgradeCTA.querySelector('button').onclick = () => {
         window.open('https://noterelay.io/dashboard');
       };
+      return; // Stop rendering guest controls
     }
     
     // Add Guest Form (only for Pro users)
@@ -2535,38 +2528,38 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
     // Email input
     const emailInput = addGuestForm.createEl('input', { 
       type: 'email', 
-      placeholder: hasGuestAccess ? 'guest@example.com' : 'Pro required' 
+      placeholder: 'guest@example.com' 
     });
     emailInput.style.cssText = 'padding: 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary);';
-    emailInput.disabled = !hasGuestAccess;
+    emailInput.disabled = !isPro;
     
     // Label input
     const labelInput = addGuestForm.createEl('input', { 
       type: 'text', 
-      placeholder: hasGuestAccess ? 'Display name (e.g., "Bob")' : 'Pro required' 
+      placeholder: 'Display name (e.g., "Bob")' 
     });
     labelInput.style.cssText = 'padding: 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary);';
-    labelInput.disabled = !hasGuestAccess;
+    labelInput.disabled = !isPro;
     
     // Password input
     const guestPassInput = addGuestForm.createEl('input', { 
       type: 'password', 
-      placeholder: hasGuestAccess ? 'Password for guest' : 'Pro required' 
+      placeholder: 'Password for guest' 
     });
     guestPassInput.style.cssText = 'padding: 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary);';
-    guestPassInput.disabled = !hasGuestAccess;
+    guestPassInput.disabled = !isPro;
     
     // Mode selector
     const modeSelect = addGuestForm.createEl('select');
     modeSelect.style.cssText = 'padding: 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary);';
     modeSelect.createEl('option', { text: 'Read-Write', value: 'rw' });
     modeSelect.createEl('option', { text: 'Read-Only', value: 'ro' });
-    modeSelect.disabled = !hasGuestAccess;
+    modeSelect.disabled = !isPro;
     
     // Add button
-    const addGuestBtn = addGuestForm.createEl('button', { text: hasGuestAccess ? 'Add Guest' : 'Add Guest (Pro Required)' });
+    const addGuestBtn = addGuestForm.createEl('button', { text: 'Add Guest' });
     addGuestBtn.style.cssText = 'padding: 8px 16px; background: var(--interactive-accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;';
-    addGuestBtn.disabled = !hasGuestAccess;
+    addGuestBtn.disabled = !isPro;
     addGuestBtn.onclick = async () => {
       const email = emailInput.value.trim();
       const label = labelInput.value.trim();
@@ -2783,13 +2776,13 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
       });
     }
     
-    // Status & Info Section (only show when active)
+    // Status & Info Section
+    const infoDiv = container.createDiv();
+    infoDiv.style.cssText = 'padding: 20px; background: var(--background-secondary); border-radius: 6px; margin: 20px 0;';
+    
     const vaultIsActive = this.plugin.signalId && this.plugin.heartbeatInterval;
     
     if (vaultIsActive) {
-      const infoDiv = container.createDiv();
-      infoDiv.style.cssText = 'padding: 20px; background: var(--background-secondary); border-radius: 6px; margin: 20px 0;';
-      
       // Show success state for active/validated subscriptions
       infoDiv.innerHTML = `
         <h4 style="margin-top: 0; color: #4caf50;">✅ Remote Access Active</h4>
@@ -2803,6 +2796,23 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
         </div>
         <div style="margin-top: 10px; font-size: 0.9em; color: var(--text-muted);">
           💡 <strong>Tip:</strong> Keep this plugin running to maintain remote access. Closing Obsidian will disconnect your vault.
+        </div>
+      `;
+    } else {
+      // Show setup instructions for inactive subscriptions
+      infoDiv.innerHTML = `
+        <h4 style="margin-top: 0;">🌐 Remote Access Setup</h4>
+        <div style="margin: 15px 0; padding: 15px; background: var(--background-primary-alt); border-radius: 4px;">
+          <strong>Quick Start:</strong>
+          <ol style="margin: 10px 0; padding-left: 20px;">
+            <li>Set your master password above</li>
+            <li>Enter your email address (same as your subscription)</li>
+            <li>Click "Activate Remote Access" button</li>
+            <li>Go to <a href="https://noterelay.io/dashboard.html" target="_blank" style="color: var(--interactive-accent);">Dashboard</a> to connect</li>
+          </ol>
+        </div>
+        <div style="margin-top: 15px; padding: 10px; background: rgba(124, 77, 255, 0.1); border-radius: 4px;">
+          💎 <strong>Don't have a subscription?</strong> <a href="https://noterelay.io/#pricing" target="_blank" style="color: var(--interactive-accent);">Get Pro Access</a>
         </div>
       `;
     }

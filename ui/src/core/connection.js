@@ -3,18 +3,14 @@
  * Handles both local HTTP (localhost:5474) and remote WebRTC connections
  */
 
-// Supabase client (will be removed in plugin mode, only needed for WebRTC remote access)
-const SUPABASE_URL = 'https://upstfmjkzrrshiprdoie.supabase.co'; 
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwc3RmbWprenJyc2hpcHJkb2llIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4NDUxNDIsImV4cCI6MjA3OTQyMTE0Mn0.rJCvxQomRogp-9i9Uo2pK-mXpIjn0oyISivYGAifZ4s';
-
-// Note: In production, this will use '@supabase/supabase-js' installed via npm
-// For now using dynamic import to avoid bundling issues
+// Supabase credentials loaded dynamically from API (no hardcoded keys)
 let supabase = null;
+let supabaseCredentials = null;
 
 async function initSupabase() {
-    if (!supabase) {
+    if (!supabase && supabaseCredentials) {
         const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
-        supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+        supabase = createClient(supabaseCredentials.url, supabaseCredentials.anonKey);
     }
     return supabase;
 }
@@ -169,8 +165,9 @@ export default class VaultConnection {
             throw new Error('No vault selected');
         }
         
+        let vaultData;
         try {
-            const vaultData = JSON.parse(selectedVault);
+            vaultData = JSON.parse(selectedVault);
             this.CLIENT_ID = vaultData.signalId;
             console.log('🔑 Vault Signal ID (CLIENT_ID):', this.CLIENT_ID);
         } catch (error) {
@@ -178,6 +175,37 @@ export default class VaultConnection {
         }
         
         this.password = password;
+        this.onStatusUpdate("Initializing connection...");
+        
+        // Get Supabase credentials and ICE servers from API
+        // This fetches credentials dynamically (no hardcoded keys)
+        try {
+            const initResponse = await fetch('https://noterelay.io/api/plugin-init', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: vaultData.userEmail || window.userEmail, // From plugin settings
+                    vaultId: vaultData.id
+                })
+            });
+
+            if (!initResponse.ok) {
+                const error = await initResponse.json();
+                throw new Error(error.error || 'Failed to initialize connection');
+            }
+
+            const initData = await initResponse.json();
+            supabaseCredentials = initData.supabase;
+            this.iceServers = initData.iceServers;
+            
+            console.log('✅ Connection credentials obtained');
+        } catch (err) {
+            this.onStatusUpdate("Unable to reach connection service. Check internet connection.");
+            throw err;
+        }
+        
         this.onStatusUpdate("Establishing secure end-to-end encryption...");
         
         // Phase 1: Try STUN-only (Direct P2P - Free)
@@ -194,17 +222,8 @@ export default class VaultConnection {
             
             this.onStatusUpdate("Routing through secure private tunnel...");
             
-            const sb = await initSupabase();
-            const { data } = await sb.auth.getSession();
-            const token = data?.session?.access_token;
-            
-            if (!token) {
-                this.onStatusUpdate("Unable to authenticate. Please login again.");
-                throw new Error('Authentication required');
-            }
-            
             try {
-                await this.attemptConnection(true, token);
+                await this.attemptConnection(true);
             } catch (finalErr) {
                 this.onStatusUpdate("Connection failed. Is the vault online?");
                 throw finalErr;
@@ -217,53 +236,27 @@ export default class VaultConnection {
     /**
      * Attempt WebRTC connection with given ICE configuration
      */
-    async attemptConnection(useTurn, token = null) {
+    async attemptConnection(useTurn) {
         return new Promise(async (resolve, reject) => {
             if (this.peer) {
                 this.peer.destroy();
                 this.peer = null;
             }
             
-            let iceServers = [
+            // Use ICE servers from plugin-init API
+            let iceServers = this.iceServers || [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' }
             ];
             
-            if (useTurn && token) {
-                try {
-                    const turnResponse = await fetch('/api/turn-credentials', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (turnResponse.status === 401 || turnResponse.status === 403) {
-                        this.onStatusUpdate("Session expired. Please log in again.");
-                        reject(new Error('Authentication required'));
-                        return;
-                    }
-                    
-                    if (!turnResponse.ok) {
-                        throw new Error(`TURN API returned ${turnResponse.status}`);
-                    }
-                    
-                    const turnData = await turnResponse.json();
-                    if (turnData.iceServers) {
-                        iceServers = turnData.iceServers;
-                        console.log('✅ TURN credentials obtained');
-                    }
-                } catch (err) {
-                    if (err.message === 'Authentication required') {
-                        reject(err);
-                    } else {
-                        this.onStatusUpdate("Unable to reach secure relay. Check internet connection.");
-                        reject(err);
-                    }
-                    return;
-                }
+            // Filter based on connection phase
+            if (!useTurn) {
+                // Phase 1: STUN only (filter out TURN servers)
+                iceServers = iceServers.filter(server => 
+                    server.urls.includes('stun:')
+                );
             }
+            // Phase 2: Use all servers (STUN + TURN)
             
             await this.initPeer(this.password, iceServers, useTurn, resolve, reject);
         });
