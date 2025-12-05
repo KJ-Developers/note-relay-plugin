@@ -2289,15 +2289,6 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
   }
   
   displayRemoteTab(container) {
-    // === GATEKEEPER: IDENTITY REQUIRED ===
-    if (!this.plugin.settings.userEmail) {
-      const errorBlock = container.createEl('div', {
-        cls: 'setting-error-block'
-      });
-      errorBlock.style.cssText = 'color: var(--text-error); font-weight: bold; padding: 15px; border: 2px solid var(--text-error); border-radius: 6px; background: rgba(244, 67, 54, 0.1); margin: 20px 0;';
-      errorBlock.innerHTML = '⚠️ <strong>Identity Required:</strong> Please enter your email in the General tab to configure Remote Access.';
-      return; // STOP RENDERING THE REST OF THE TAB
-    }
     
     // Define tier (base and pro both get remote access)
     const isPro = ['base', 'pro'].includes(this.plugin.settings.licenseTier);
