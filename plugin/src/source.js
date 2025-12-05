@@ -1993,33 +1993,32 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
       cls: 'setting-item-description'
     });
     
+    // Staging variable to prevent false "Connected" state while typing
+    let tempEmail = this.plugin.settings.userEmail || '';
+    
     // Email Address (moved from Remote tab)
     const emailSetting = new obsidian.Setting(identitySection)
       .setName('Email Address')
       .setDesc('The email address associated with your Note Relay subscription')
       .addText((t) => {
         t.setPlaceholder('your.email@example.com');
-        t.setValue(this.plugin.settings.userEmail || '');
+        t.setValue(tempEmail);
         t.inputEl.type = 'email';
-        t.onChange(async (value) => {
-          // Update in-memory setting only (no display refresh to prevent focus loss)
-          this.plugin.settings.userEmail = value.trim().toLowerCase();
-          await this.plugin.saveSettings();
-          
-          if (!value) {
-            this.plugin.disconnectSignaling();
-          }
-          // DO NOT call this.display() here - it destroys the input element
+        t.onChange((value) => {
+          // Update staging variable ONLY (no settings, no save, no refresh)
+          tempEmail = value.trim().toLowerCase();
         });
       })
       .addButton((b) => b
         .setButtonText('Connect')
         .setCta()
         .onClick(async () => {
-          if (this.plugin.settings.userEmail) {
+          if (tempEmail) {
+            // Commit staged value to settings
+            this.plugin.settings.userEmail = tempEmail;
             await this.plugin.saveSettings();
             new obsidian.Notice('✅ Account connected - Remote features unlocked');
-            this.display(); // NOW refresh to unlock tabs
+            this.display(); // NOW refresh to show connected state
           } else {
             new obsidian.Notice('Please enter your email address');
           }
@@ -2037,10 +2036,11 @@ class MicroServerSettingTab extends obsidian.PluginSettingTab {
           if (confirmed) {
             this.plugin.settings.userEmail = '';
             this.plugin.settings.dbVaultId = '';
+            tempEmail = ''; // Clear staging variable
             this.plugin.disconnectSignaling();
             await this.plugin.saveSettings();
             new obsidian.Notice('Account disconnected');
-            this.display(); // Force UI refresh
+            this.display(); // Force UI refresh to show disconnected state
           }
         })
       );
