@@ -1581,9 +1581,18 @@ class MicroServer extends obsidian.Plugin {
           return;
         }
         
+        // Create a wrapped sendCallback that preserves the requestId
+        const wrappedSendCallback = (type, data, meta = {}) => {
+          // Preserve requestId from original message for promise resolution
+          const metaWithRequestId = msg.requestId !== undefined
+            ? { ...meta, requestId: msg.requestId }
+            : meta;
+          return peer.sendChunked(type, data, metaWithRequestId);
+        };
+
         // Use unified command processor with WebRTC send callback
-        await this.processCommand(msg, peer.sendChunked);
-        
+        await this.processCommand(msg, wrappedSendCallback);
+
       } catch (e) {
         console.error('Portal Error', e);
       }
